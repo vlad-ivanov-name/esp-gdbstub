@@ -6,19 +6,18 @@
  * License: ESPRESSIF MIT License
  *******************************************************************************/
 
-
 #include "gdbstub-cfg.h"
 
 #include <xtensa/config/specreg.h>
 #include <xtensa/config/core-isa.h>
 #include <xtensa/corebits.h>
 
-#define DEBUG_PC	(EPC + XCHAL_DEBUGLEVEL)
-#define DEBUG_EXCSAVE	(EXCSAVE + XCHAL_DEBUGLEVEL)
-#define DEBUG_PS	(EPS + XCHAL_DEBUGLEVEL)
-
+#define DEBUG_PC			(EPC + XCHAL_DEBUGLEVEL)
+#define DEBUG_EXCSAVE		(EXCSAVE + XCHAL_DEBUGLEVEL)
+#define DEBUG_PS			(EPS + XCHAL_DEBUGLEVEL)
 
 .global gdbstub_savedRegs
+.global gdbstub_debug_exception_entry
 
 #if GDBSTUB_USE_OWN_STACK
 .global gdbstub_exceptionStack
@@ -277,13 +276,12 @@ gdbstub_save_extra_sfrs_for_exception:
 	ret
 
 	.global gdbstub_init_debug_entry
-	.global _DebugExceptionVector
 	.align	4
 gdbstub_init_debug_entry:
 //This puts the following 2 instructions into the debug exception vector:
 //	xsr	a2, DEBUG_EXCSAVE
 //	jx	a2
-	movi	a2, _DebugExceptionVector
+	movi	a2, 0x40000010 // DebugExceptionVector
 	movi	a3, 0xa061d220
 	s32i	a3, a2, 0
 	movi	a3, 0x00000002
@@ -383,24 +381,6 @@ gdbstub_del_hw_watchpoint:
 
 return_w_error:
 	movi	a2, 0
-	ret
-
-
-//Breakpoint, with an attempt at a functional function prologue and epilogue...
-	.global gdbstub_do_break_breakpoint_addr
-	.global gdbstub_do_break
-	.align	4
-gdbstub_do_break:
-	addi	a1, a1, -16
-	s32i	a15, a1, 12
-	mov		a15, a1
-
-gdbstub_do_break_breakpoint_addr:
-	break 0,0
-
-	mov		a1, a15
-	l32i	a15, a1, 12
-	addi	a1, a1, 16
 	ret
 
 

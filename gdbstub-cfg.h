@@ -16,7 +16,7 @@ normally disabled because not many situations need it. If for some reason the GD
 stops when you run into an error in your code, try enabling this.
 */
 #ifndef GDBSTUB_USE_OWN_STACK
-#define GDBSTUB_USE_OWN_STACK 0
+#define GDBSTUB_USE_OWN_STACK 1
 #endif
 
 /*
@@ -55,7 +55,7 @@ flash somehow is disabled (eg during SPI operations or flash write/erase operati
 are called when the flash is disabled (eg due to a Ctrl-C at the wrong time), the ESP8266 will most 
 likely crash.
 */
-#define ATTR_GDBINIT	ICACHE_FLASH_ATTR
+#define ATTR_GDBINIT
 #ifndef ATTR_GDBFN
 #define ATTR_GDBFN		
 #endif
