@@ -1,1 +1,16 @@
 .output/
+
+# premake
+
+lib
+include
+obj
+bin
+Makefile
+*.make
+
+# eclipse
+
+.cproject
+.project
+.settings
