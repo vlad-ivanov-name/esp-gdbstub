@@ -277,33 +277,6 @@ gdbstub_save_extra_sfrs_for_exception:
 
 	.global gdbstub_init_debug_entry
 	.align	4
-gdbstub_init_debug_entry:
-//This puts the following 2 instructions into the debug exception vector:
-//	xsr	a2, DEBUG_EXCSAVE
-//	jx	a2
-	movi	a2, 0x40000010 // DebugExceptionVector
-	movi	a3, 0xa061d220
-	s32i	a3, a2, 0
-	movi	a3, 0x00000002
-	s32i	a3, a2, 4
-
-//Tell the just-installed debug vector where to go.
-	movi	a2, gdbstub_debug_exception_entry
-	wsr		a2, DEBUG_EXCSAVE
-
-	ret
-
-
-//Set up ICOUNT register to step one single instruction
-	.global gdbstub_icount_ena_single_step
-	.align 4
-gdbstub_icount_ena_single_step:
-	movi	a3, XCHAL_DEBUGLEVEL //Only count steps in non-debug mode
-	movi	a2, -2
-	wsr		a3, ICOUNTLEVEL
-	wsr		a2, ICOUNT
-	isync
-	ret
 
 
 //These routines all assume only one breakpoint and watchpoint is available, which

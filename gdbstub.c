@@ -101,6 +101,14 @@ static unsigned char obuf[OBUFLEN];		// GDB stdout buffer
 static int obufpos=0;					// Current position in the buffer
 #endif
 static int32_t singleStepPs=-1;			// Stores ps when single-stepping instruction. -1 when not in use.
+void gdbstub_icount_ena_single_step() {
+	__asm volatile (
+		"wsr %0, ICOUNTLEVEL" "\n"
+		"wsr %1, ICOUNT" "\n"
+	:: "a" (XCHAL_DEBUGLEVEL), "a" (-2));
+
+	__asm volatile ("isync");
+}
 
 // Small function to feed the hardware watchdog. Needed to stop the ESP from resetting
 // due to a watchdog timeout while reading a command.
