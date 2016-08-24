@@ -844,8 +844,13 @@ static void ATTR_GDBINIT install_uart_hdlr() {
 
 	SET_PERI_REG_MASK(UART_INT_ENA(0), UART_RXFIFO_FULL_INT_ENA | UART_RXFIFO_TOUT_INT_ENA);
 
-	// enable uart interrupt
-	sdk__xt_isr_unmask((1 << ETS_UART_INUM));
+	// enable UART interrupt
+	uint32_t intenable;
+	__asm volatile (
+		"rsr %0, intenable" "\n"
+		"or %0, %0, %1" "\n"
+		"wsr %0, intenable" "\n"
+	:: "r" (intenable), "r" (BIT(ETS_UART_INUM)));
 }
 
 // gdbstub initialization routine.
