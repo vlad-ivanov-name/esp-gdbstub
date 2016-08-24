@@ -32,17 +32,17 @@
 
 /*
 The savedRegs struct:
-	uint32_t pc;
-	uint32_t ps;
-	uint32_t sar;
-	uint32_t vpri;
-	uint32_t a0;
-	uint32_t a[14]; //a2..a15
-	uint32_t litbase;
-	uint32_t sr176;
-	uint32_t sr208;
-	uint32_t a1;
-	uint32_t reason;
+	0x00 uint32_t pc;
+	0x04 uint32_t ps;
+	0x08 uint32_t sar;
+	0x0C uint32_t vpri;
+	0x10 uint32_t a0;
+	0x14 uint32_t a[14]; //a2..a15
+	     uint32_t litbase;
+	     uint32_t sr176;
+	     uint32_t sr208;
+	     uint32_t a1;
+	     uint32_t reason;
 */
 
 /*
@@ -250,20 +250,18 @@ gdbstub_user_exception_entry:
 UserExceptionExit:
 
 /*
-Okay, from here on, it Does Not Work. There's not really any continuing from an exception in the
-FreeRTOS case; there isn't any effort put in reversing the mess the exception code made yet. Maybe this
-is still something we need to implement later, if there's any demand for it, or maybe we should modify
-FreeRTOS to allow this in the future. (Which will then kill backwards compatibility... hmmm.)
+ Okay, from here on, it Does Not Work. There's not really any continuing from an exception in the
+ FreeRTOS case; there isn't any effort put in reversing the mess the exception code made yet. Maybe this
+ is still something we need to implement later, if there's any demand for it, or maybe we should modify
+ FreeRTOS to allow this in the future. (Which will then kill backwards compatibility... hmmm.)
 */
 	j UserExceptionExit
 #endif
 
-
-
 	.global gdbstub_save_extra_sfrs_for_exception
 	.align 4
-//The Xtensa OS HAL does not save all the special function register things. This bit of assembly
-//fills the gdbstub_savedRegs struct with them.
+// The  Xtensa OS HAL does not save all the special function register things. This bit of assembly
+// fills the gdbstub_savedRegs struct with them.
 gdbstub_save_extra_sfrs_for_exception:
 	movi	a2, gdbstub_savedRegs
 	rsr		a3, LITBASE
@@ -279,14 +277,12 @@ gdbstub_save_extra_sfrs_for_exception:
 	.global gdbstub_init_debug_entry
 	.align	4
 
-
-//These routines all assume only one breakpoint and watchpoint is available, which
-//is the case for the ESP8266 Xtensa core.
-
+// These routines all assume only one breakpoint and watchpoint is available, which
+// is the case for the ESP8266 Xtensa core.
 
 	.global gdbstub_set_hw_breakpoint
 gdbstub_set_hw_breakpoint:
-	//a2 - addr, a3 - len (unused here)
+	// a2 - addr, a3 - len (unused here)
 	rsr		a4, IBREAKENABLE
 	bbsi	a4, 0, return_w_error
 	wsr		a2, IBREAKA
@@ -298,32 +294,32 @@ gdbstub_set_hw_breakpoint:
 
 	.global gdbstub_del_hw_breakpoint
 gdbstub_del_hw_breakpoint:
-	//a2 - addr
+	// a2 - addr
 	rsr		a5, IBREAKENABLE
 	bbci	a5, 0, return_w_error
 	rsr		a3, IBREAKA
 	bne		a3, a2, return_w_error
-	movi	a2,0
+	movi	a2, 0
 	wsr		a2, IBREAKENABLE
 	isync
 	movi	a2, 1
 	ret
 
 	.global gdbstub_set_hw_watchpoint
-	//a2 - addr, a3 - mask, a4 - type (1=read, 2=write, 3=access)
+	// a2 - addr, a3 - mask, a4 - type (1=read, 2=write, 3=access)
 gdbstub_set_hw_watchpoint:
-	//Check if any of the masked address bits are set. If so, that is an error.
+	// Check if any of the masked address bits are set. If so, that is an error.
 	movi	a5,0x0000003F
 	xor		a5, a5, a3
 	bany	a2, a5, return_w_error
-	//Check if watchpoint already is set
+	// Check if watchpoint already is set
 	rsr		a5, DBREAKC
 	movi	a6, 0xC0000000
 	bany	a6, a5, return_w_error
-	//Set watchpoint
+	// Set watchpoint
 	wsr		a2, DBREAKA
 	
-	//Combine type and mask
+	// Combine type and mask
 	movi	a6, 0x3F
 	and		a3, a3, a6
 	slli	a4, a4, 30
@@ -335,26 +331,24 @@ gdbstub_set_hw_watchpoint:
 	isync
 	ret
 
-
 	.global gdbstub_del_hw_watchpoint
-	//a2 - addr
+	// a2 - addr
 gdbstub_del_hw_watchpoint:
-	//See if the address matches
+	// See if the address matches
 	rsr		a3, DBREAKA
 	bne		a3, a2, return_w_error
-	//See if the bp actually is set
+
+	// See if the bp actually is set
 	rsr		a3, DBREAKC
 	movi	a2, 0xC0000000
 	bnone	a3, a2, return_w_error
-	//Disable bp
-	movi	a2,0
-	wsr		a2,DBREAKC
-	movi	a2,1
+	// Disable bp
+	movi	a2, 0
+	wsr		a2, DBREAKC
+	movi	a2, 1
 	isync
 	ret
 
 return_w_error:
 	movi	a2, 0
 	ret
-
-
