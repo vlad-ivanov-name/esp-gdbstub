@@ -10,7 +10,6 @@
 #include "gdbstub.h"
 #include "ets_sys.h"
 #include "eagle_soc.h"
-//#include "gpio.h"
 
 #include <xtensa/config/specreg.h>
 #include <xtensa/config/core-isa.h>
@@ -25,7 +24,6 @@
 
 #define BIT(X) (1<<(X))
 
-//From xtruntime-frames.h
 struct xtensa_exception_frame_t {
 	uint32_t pc;
 	uint32_t ps;
@@ -33,22 +31,14 @@ struct xtensa_exception_frame_t {
 	uint32_t vpri;
 	uint32_t a0;
 	uint32_t a[14]; //a2..a15
-//These are added manually by the exception code; the HAL doesn't set these on an exception.
+	// These are added manually by the exception code; the HAL doesn't set these on an exception.
 	uint32_t litbase;
 	uint32_t sr176;
 	uint32_t sr208;
 	uint32_t a1;
-	 //'reason' is abused for both the debug and the exception vector: if bit 7 is set,
-	//this contains an exception reason, otherwise it contains a debug vector bitmap.
+	// 'reason' is abused for both the debug and the exception vector: if bit 7 is set,
+	// this contains an exception reason, otherwise it contains a debug vector bitmap.
 	uint32_t reason;
-};
-
-struct xtensa_rtos_int_frame_t {
-	uint32_t exitPtr;
-	uint32_t pc;
-	uint32_t ps;
-	uint32_t a[16];
-	uint32_t sar;
 };
 
 #include <string.h>
@@ -97,7 +87,7 @@ int exceptionStack[256];
 static unsigned char cmd[PBUFLEN];		// GDB command input buffer
 static char gdbstub_packet_crc;			// Checksum of the output packet
 static unsigned char obuf[OBUFLEN];		// GDB stdout buffer
-static int obufpos=0;					// Current position in the buffer
+static int obufpos = 0;					// Current position in the buffer
 
 static int32_t singleStepPs = -1;			// Stores ps when single-stepping instruction. -1 when not in use.
 
@@ -765,7 +755,7 @@ static void ATTR_GDBFN gdb_semihost_putchar1(char c) {
 extern void gdbstub_user_exception_entry();
 extern void gdbstub_debug_exception_entry();
 
-static void ATTR_GDBINIT install_exceptions() {
+static void ATTR_GDBINIT gdbstub_install_exceptions() {
 	extern void (* debug_exception_handler)();
 
 	debug_exception_handler = &gdbstub_debug_exception_entry;
@@ -839,7 +829,7 @@ void ATTR_GDBFN gdbstub_handle_uart_int() {
 	}
 }
 
-static void ATTR_GDBINIT install_uart_hdlr() {
+static void ATTR_GDBINIT gdbstub_install_uart_handler() {
 	_xt_isr_attach(ETS_UART_INUM, gdbstub_handle_uart_int);
 
 	SET_PERI_REG_MASK(UART_INT_ENA(0), UART_RXFIFO_FULL_INT_ENA | UART_RXFIFO_TOUT_INT_ENA);
@@ -860,11 +850,9 @@ void ATTR_GDBINIT gdbstub_init() {
 	sdk_os_install_putc1(gdb_semihost_putchar1);
 
 	// install UART interrupt handler
-	install_uart_hdlr();
+	gdbstub_install_uart_handler();
 
 	// install debug exception wrapper
-	install_exceptions();
-
-	// gdbstub_init_debug_entry();
+	gdbstub_install_exceptions();
 }
 
