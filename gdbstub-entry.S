@@ -18,10 +18,11 @@
 
 .global gdbstub_savedRegs
 .global gdbstub_debug_exception_entry
-
-#if GDBSTUB_USE_OWN_STACK
 .global gdbstub_exceptionStack
-#endif
+
+// part of esp-open-rtos
+// contains a0 - a4
+.global debug_saved_ctx
 
 	.text
 .literal_position
@@ -51,25 +52,30 @@ We arrive here with all regs intact except for a2. The old contents of A2 are sa
 into the DEBUG_EXCSAVE special function register. EPC is the original PC.
 */
 gdbstub_debug_exception_entry:
-/*
-	//Minimum no-op debug exception handler, for debug
-	rsr a2,DEBUG_PC
-	addi a2,a2,3
-	wsr a2,DEBUG_PC
-	xsr	a2, DEBUG_EXCSAVE
-	rfi	XCHAL_DEBUGLEVEL
-*/
-
-//Save all regs to structure
+	// a0 - a4 are in debug_saved_ctx
+	// move them to gdbstub struct and save the rest
+	movi    a1, debug_saved_ctx
 	movi	a2, gdbstub_savedRegs
-	s32i	a0, a2, 0x10
-	s32i	a1, a2, 0x58
-	rsr		a0, DEBUG_PS
-	s32i	a0, a2, 0x04
-	rsr		a0, DEBUG_EXCSAVE //was R2
-	s32i	a0, a2, 0x14
-	s32i	a3, a2, 0x18
-	s32i	a4, a2, 0x1c
+
+	// a0
+	l32i	a0, a1, 0x00
+	s32i    a0, a2, 0x10
+
+	// a1
+	l32i	a0, a1, 0x04
+	s32i    a0, a2, 0x58
+
+	// a2 - a4
+	l32i	a0, a1, 0x08
+	s32i    a0, a2, 0x14
+
+	l32i	a0, a1, 0x0c
+	s32i    a0, a2, 0x18
+
+	l32i	a0, a1, 0x10
+	s32i    a0, a2, 0x1c
+
+	// the rest of registers is still intact
 	s32i	a5, a2, 0x20
 	s32i	a6, a2, 0x24
 	s32i	a7, a2, 0x28
@@ -87,54 +93,65 @@ gdbstub_debug_exception_entry:
 	s32i	a0, a2, 0x4C
 	rsr		a0, 176
 	s32i	a0, a2, 0x50
-	rsr		a0, 208
-	s32i	a0, a2, 0x54
+//	rsr		a0, 208
+//	s32i	a0, a2, 0x54
 	rsr		a0, DEBUGCAUSE
 	s32i	a0, a2, 0x5C
 	rsr		a4, DEBUG_PC
 	s32i	a4, a2, 0x00
+	rsr		a4, DEBUG_PS
+	s32i	a4, a2, 0x04
 
-#if GDBSTUB_USE_OWN_STACK
-	//Move to our own stack
-	movi a1, exceptionStack+255*4
-#endif
+	// Move to our own stack
+	movi	a1, exceptionStack + 255 * 4
 
-//If ICOUNT is -1, disable it by setting it to 0, otherwise we will keep triggering on the same instruction.
+// If ICOUNT is -1, disable it by setting it to 0, otherwise we will keep triggering on the same instruction.
 	rsr		a2, ICOUNT
 	movi	a3, -1
-	bne		a2, a3, noIcountReset
+	bne		a2, a3, .no_icount_reset
 	movi	a3, 0
 	wsr		a3, ICOUNT
-noIcountReset:
+.no_icount_reset:
 
-	rsr	a2, ps
+	rsr		a2, ps
 	addi	a2, a2, -PS_EXCM_MASK
-	wsr	a2, ps
+	wsr		a2, ps
 	rsync
 
-//Call into the C code to do the actual handling.
+// Call into the C code to do the actual handling.
 	call0	gdbstub_handle_debug_exception
 
-DebugExceptionExit:
+gdbstub_debug_exception_exit:
 
-	rsr	a2, ps
+	rsr		a2, ps
 	addi	a2, a2, PS_EXCM_MASK
-	wsr	a2, ps
+	wsr		a2, ps
 	rsync
 
-	//Restore registers from the gdbstub_savedRegs struct
+	// Restore registers from the gdbstub_savedRegs struct
 	movi	a2, gdbstub_savedRegs
+
+	// PC
 	l32i	a0, a2, 0x00
 	wsr		a0, DEBUG_PC
+
+	// PS
+	l32i	a0, a2, 0x04
+	wsr		a0, DEBUG_PS
+
 //	l32i	a0, a2, 0x54
 //	wsr		a0, 208
+
 	l32i	a0, a2, 0x50
-	//wsr		a0, 176		//Some versions of gcc do not understand this...
-	.byte  0x00, 176, 0x13	//so we hand-assemble the instruction.
+	wsr		a0, 176
+
 	l32i	a0, a2, 0x4C
 	wsr		a0, LITBASE
+
 	l32i	a0, a2, 0x08
 	wsr		a0, SAR
+
+	// a15 - a3
 	l32i	a15, a2, 0x48
 	l32i	a14, a2, 0x44
 	l32i	a13, a2, 0x40
@@ -148,21 +165,18 @@ DebugExceptionExit:
 	l32i	a5, a2, 0x20
 	l32i	a4, a2, 0x1c
 	l32i	a3, a2, 0x18
-	l32i	a0, a2, 0x14
-	wsr		a0, DEBUG_EXCSAVE //was R2
-	l32i	a0, a2, 0x04
-	wsr		a0, DEBUG_PS
-	l32i	a1, a2, 0x58
+
+	// a0
 	l32i	a0, a2, 0x10
 
-	//Read back vector-saved a2 value, put back address of this routine.
-	movi	a2, gdbstub_debug_exception_entry
-	xsr	a2, DEBUG_EXCSAVE
+	// a1
+	l32i	a1, a2, 0x58
+
+	// a2
+	l32i	a2, a2, 0x14
 
 	//All done. Return to where we came from.
-	rfi	XCHAL_DEBUGLEVEL
-
-
+	rfi		XCHAL_DEBUGLEVEL
 
 #if GDBSTUB_FREERTOS
 /*
@@ -185,7 +199,7 @@ the user exception handler vector:
 	.global gdbstub_user_exception_entry
 	.align	4
 gdbstub_user_exception_entry:
-//Save all regs to structure
+// Save all regs to structure
 	movi	a0, gdbstub_savedRegs
 	s32i	a1, a0, 0x14 //was a2
 	s32i	a3, a0, 0x18
@@ -212,7 +226,7 @@ gdbstub_user_exception_entry:
 	rsr		a2, EXCCAUSE
 	s32i	a2, a0, 0x5C
 
-//Get the rest of the regs from the stack struct
+// Get the rest of the regs from the stack struct
 	l32i	a3, a1, 12
 	s32i	a3, a0, 0x10
 	l32i	a3, a1, 16
@@ -223,12 +237,12 @@ gdbstub_user_exception_entry:
 	s32i	a3, a0, 0x00
 
 #if GDBSTUB_USE_OWN_STACK
-	movi a1, exceptionStack+255*4
+	movi    a1, exceptionStack + 255 * 4
 #endif
 
-	rsr	a2, ps
+	rsr		a2, ps
 	addi	a2, a2, -PS_EXCM_MASK
-	wsr	a2, ps
+	wsr		a2, ps
 	rsync
 
 	call0	gdbstub_handle_user_exception
