@@ -826,6 +826,7 @@ void ATTR_GDBFN gdbstub_handle_uart_int() {
 		__asm volatile (
 			"wsr %0, %1"
 		: "=r" (gdbstub_savedRegs.pc) : "i" (EPC + XCHAL_INT5_LEVEL));
+
 		isr_stack[2] = gdbstub_savedRegs.ps;
 
 		debug_saved_ctx_p[0] = gdbstub_savedRegs.a0;
