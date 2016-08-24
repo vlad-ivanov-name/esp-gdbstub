@@ -13,6 +13,10 @@
 //#include "gpio.h"
 #include "xtensa/corebits.h"
 
+#include <xtensa/config/specreg.h>
+#include <xtensa/config/core-isa.h>
+#include <xtensa/corebits.h>
+
 #include "gdbstub.h"
 #include "gdbstub-entry.h"
 #include "gdbstub-cfg.h"
@@ -771,61 +775,75 @@ static void ATTR_GDBINIT install_exceptions() {
 	debug_exception_handler = &gdbstub_debug_exception_entry;
 }
 
-#if GDBSTUB_CTRLC_BREAK
-
-void ATTR_GDBFN gdbstub_handle_uart_int(struct XTensa_rtos_int_frame_s *frame) {
-	uint8_t doDebug = 0;
+// TODO: use gdbstub stack for this function too
+void ATTR_GDBFN gdbstub_handle_uart_int() {
+	uint8_t do_debug = 0;
 	size_t fifolen = 0;
 
 	fifolen = (READ_PERI_REG(UART_STATUS(0)) >> UART_RXFIFO_CNT_S) & UART_RXFIFO_CNT;
 
 	while (fifolen != 0) {
-		//Check if any of the chars is control-C. Throw away rest.
+		// Check if any of the chars is control-C. Throw away the rest.
 		if ((READ_PERI_REG(UART_FIFO(0)) & 0xFF) == 0x3) {
-			doDebug = 1;
+			do_debug = 1;
+			break;
 		}
 		fifolen--;
 	}
 
 	WRITE_PERI_REG(UART_INT_CLR(0), UART_RXFIFO_FULL_INT_CLR | UART_RXFIFO_TOUT_INT_CLR);
 
-	if (doDebug) {
-		//Copy registers the Xtensa HAL did save to gdbstub_savedRegs
-		gdbstub_savedRegs.pc = frame->pc;
-		gdbstub_savedRegs.ps = frame->ps;
-		gdbstub_savedRegs.sar = frame->sar;
-		gdbstub_savedRegs.a0 = frame->a[0];
-		gdbstub_savedRegs.a1 = frame->a[1];
+	// TODO: restore a0, a1 as well in esp-open-rtos
+	// TODO: save and restore a14, a15, a16 in esp-open-rtos
 
-		for (size_t x = 2; x < 16; x++) {
-			gdbstub_savedRegs.a[x - 2] = frame->a[x];
+	if (do_debug) {
+		extern uint32_t debug_saved_ctx;
+
+		uint32_t * isr_stack;
+		const size_t isr_stack_reg_offset = 5;
+		uint32_t * debug_saved_ctx_p = &debug_saved_ctx;
+
+		__asm volatile (
+			"rsr %0, %1"
+		: "=r" (gdbstub_savedRegs.pc) : "i" (EPC + XCHAL_INT5_LEVEL));
+
+		gdbstub_savedRegs.a0 = debug_saved_ctx_p[0];
+		gdbstub_savedRegs.a1 = debug_saved_ctx_p[1];
+
+		isr_stack = (uint32_t *) (gdbstub_savedRegs.a1 - 0x50);
+		gdbstub_savedRegs.ps = isr_stack[2];
+
+		for (size_t x = 2; x < 13; x++) {
+			gdbstub_savedRegs.a[x - 2] =
+				isr_stack[isr_stack_reg_offset - 2 + x];
 		}
 
-//		gdbstub_savedRegs.a1= (uint32_t) frame + EXCEPTION_GDB_SP_OFFSET;
-		gdbstub_savedRegs.reason=0xff; //mark as user break reason
-	
+		gdbstub_savedRegs.reason = 0xff; // mark as user break reason
+
 		ets_wdt_disable();
 
-		sendReason();
-		while (gdbReadCommand() != ST_CONT);
+		gdb_send_reason();
+		while (gdb_read_command() != ST_CONT);
 
 		ets_wdt_enable();
 
-		// Copy any changed registers back to the frame the Xtensa HAL uses.
-		frame->pc=gdbstub_savedRegs.pc;
-		frame->ps=gdbstub_savedRegs.ps;
-		frame->sar=gdbstub_savedRegs.sar;
-		frame->a[0]=gdbstub_savedRegs.a0;
-		frame->a[1]=gdbstub_savedRegs.a1;
+		__asm volatile (
+			"wsr %0, %1"
+		: "=r" (gdbstub_savedRegs.pc) : "i" (EPC + XCHAL_INT5_LEVEL));
+		isr_stack[2] = gdbstub_savedRegs.ps;
 
-		for (size_t x = 2; x < 16; x++) {
-			frame->a[x] = gdbstub_savedRegs.a[x - 2];
+		debug_saved_ctx_p[0] = gdbstub_savedRegs.a0;
+		debug_saved_ctx_p[1] = gdbstub_savedRegs.a1;
+
+		for (size_t x = 2; x < 13; x++) {
+			isr_stack[isr_stack_reg_offset - 2 + x] =
+				gdbstub_savedRegs.a[x - 2];
 		}
 	}
 }
 
 static void ATTR_GDBINIT install_uart_hdlr() {
-	_xt_isr_attach(ETS_UART_INUM, gdbstub_uart_entry);
+	_xt_isr_attach(ETS_UART_INUM, gdbstub_handle_uart_int);
 
 	SET_PERI_REG_MASK(UART_INT_ENA(0), UART_RXFIFO_FULL_INT_ENA | UART_RXFIFO_TOUT_INT_ENA);
 
