@@ -1,5 +1,5 @@
 local gcc_prefix = "xtensa-lx106-elf"
-local esp_open_rtos = ""
+local esp_open_rtos = os.getenv("ESP_OPEN_RTOS")
 
 workspace "esp-gdbstub"
 	kind "StaticLib"
@@ -8,7 +8,7 @@ workspace "esp-gdbstub"
 	gccprefix (gcc_prefix .. "-")
 	buildoptions { "-mlongcalls -std=c11 -Os -g" }
 	postbuildcommands {
-		"mkdir ./include || true",
+		"mkdir -p ./include",
 		"cp gdbstub.h include"
 	}
 
