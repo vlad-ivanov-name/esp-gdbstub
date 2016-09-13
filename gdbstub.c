@@ -753,13 +753,8 @@ static void ATTR_GDBFN gdb_semihost_putchar1(char c) {
 }
 
 extern void gdbstub_user_exception_entry();
-extern void gdbstub_debug_exception_entry();
-
-static void ATTR_GDBINIT gdbstub_install_exceptions() {
-	extern void (* debug_exception_handler)();
-
-	debug_exception_handler = &gdbstub_debug_exception_entry;
-}
+// This will override a weak symbol in esp-open-rtos
+void debug_exception_handler();
 
 // TODO: use gdbstub stack for this function too
 void ATTR_GDBFN gdbstub_handle_uart_int() {
@@ -851,8 +846,5 @@ void ATTR_GDBINIT gdbstub_init() {
 
 	// install UART interrupt handler
 	gdbstub_install_uart_handler();
-
-	// install debug exception wrapper
-	gdbstub_install_exceptions();
 }
 

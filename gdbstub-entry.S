@@ -17,7 +17,7 @@
 #define DEBUG_PS			(EPS + XCHAL_DEBUGLEVEL)
 
 .global gdbstub_savedRegs
-.global gdbstub_debug_exception_entry
+.global debug_exception_handler
 .global gdbstub_exceptionStack
 
 // part of esp-open-rtos
@@ -51,7 +51,7 @@ This is the debugging exception routine; it's called by the debugging vector
 We arrive here with all regs intact except for a2. The old contents of A2 are saved 
 into the DEBUG_EXCSAVE special function register. EPC is the original PC.
 */
-gdbstub_debug_exception_entry:
+debug_exception_handler:
 	// a0 - a4 are in debug_saved_ctx
 	// move them to gdbstub struct and save the rest
 	movi    a1, debug_saved_ctx
