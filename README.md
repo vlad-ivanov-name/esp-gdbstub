@@ -5,7 +5,7 @@ esp-gdbstub
 Intro
 -----
 
-This is a fork of <a href="/Espressif/esp-gdbstub">Espressif/esp-gdbstub</a> intended for use with <a href="/SuperHouse/esp-open-rtos">esp-open-rtos</a>. As of now, you need to apply a patch to esp-open-rtos in order to use gdbstub.
+This is a fork of <a href="/Espressif/esp-gdbstub">Espressif/esp-gdbstub</a> intended for use with <a href="/SuperHouse/esp-open-rtos">esp-open-rtos</a>.
 
 Usage
 -----
