@@ -155,10 +155,10 @@ static void ATTR_GDBFN gdb_packet_str(char *c) {
 
 // Send a hex val as part of a packet. 'bits'/4 dictates the number of hex chars sent.
 static void ATTR_GDBFN gdb_packet_hex(int val, int bits) {
-	char hexChars[]="0123456789abcdef";
+	char hexChars[] = "0123456789abcdef";
 	int i;
 	for (i = bits; i > 0; i -= 4) {
-		gdb_packet_char(hexChars[(val>>(i-4))&0xf]);
+		gdb_packet_char(hexChars[(val >> (i - 4)) & 0xf]);
 	}
 }
 
@@ -179,9 +179,9 @@ static void ATTR_GDBFN gdb_packet_end() {
 // the max amount of hex chars it gobbles up. Bits can be -1 to eat up as much
 // hex chars as possible.
 static long ATTR_GDBFN gdb_get_hex_val(uint8_t **ptr, size_t bits) {
-	int i;
-	int no;
-	unsigned int v = 0;
+	size_t i;
+	uint32_t no;
+	uint32_t v = 0;
 	char c;
 	no = bits / 4;
 	if (bits == -1) {
@@ -219,10 +219,10 @@ static long ATTR_GDBFN gdb_get_hex_val(uint8_t **ptr, size_t bits) {
 // Swap an int into the form gdb wants it
 static uint32_t ATTR_GDBFN bswap32(uint32_t i) {
 	uint32_t r;
-	r =  ((i>>24) & 0xff);
-	r |= ((i>>16) & 0xff) << 8;
-	r |= ((i>>8)  & 0xff) << 16;
-	r |= ((i>>0)  & 0xff) << 24;
+	r = ((i >> 24) & 0xff);
+	r |= ((i >> 16) & 0xff) << 8;
+	r |= ((i >> 8) & 0xff) << 16;
+	r |= ((i >> 0) & 0xff) << 24;
 	return r;
 }
 
@@ -369,31 +369,31 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 		gdb_packet_end();
 	} else if (cmd[0]=='G') {
 		// receive content for all registers from gdb
-		gdbstub_savedRegs.a0=bswap32(gdb_get_hex_val(&data, 32));
-		gdbstub_savedRegs.a1=bswap32(gdb_get_hex_val(&data, 32));
+		gdbstub_savedRegs.a0 = bswap32(gdb_get_hex_val(&data, 32));
+		gdbstub_savedRegs.a1 = bswap32(gdb_get_hex_val(&data, 32));
 
 		for (i = 2; i < 16; i++) {
 			gdbstub_savedRegs.a[i - 2] = bswap32(gdb_get_hex_val(&data, 32));
 		}
 
-		gdbstub_savedRegs.pc=bswap32(gdb_get_hex_val(&data, 32));
-		gdbstub_savedRegs.sar=bswap32(gdb_get_hex_val(&data, 32));
-		gdbstub_savedRegs.litbase=bswap32(gdb_get_hex_val(&data, 32));
-		gdbstub_savedRegs.sr176=bswap32(gdb_get_hex_val(&data, 32));
+		gdbstub_savedRegs.pc = bswap32(gdb_get_hex_val(&data, 32));
+		gdbstub_savedRegs.sar = bswap32(gdb_get_hex_val(&data, 32));
+		gdbstub_savedRegs.litbase = bswap32(gdb_get_hex_val(&data, 32));
+		gdbstub_savedRegs.sr176 = bswap32(gdb_get_hex_val(&data, 32));
 
 		gdb_get_hex_val(&data, 32);
 
-		gdbstub_savedRegs.ps=bswap32(gdb_get_hex_val(&data, 32));
+		gdbstub_savedRegs.ps = bswap32(gdb_get_hex_val(&data, 32));
 		gdb_packet_start();
 		gdb_packet_str("OK");
 		gdb_packet_end();
 	} else if (cmd[0]=='m') {
 		// read memory to gdb
-		i=gdb_get_hex_val(&data, -1);
+		i = gdb_get_hex_val(&data, -1);
 		data++;
-		j=gdb_get_hex_val(&data, -1);
+		j = gdb_get_hex_val(&data, -1);
 		gdb_packet_start();
-		for (k=0; k<j; k++) {
+		for (k = 0; k < j; k++) {
 			gdb_packet_hex(mem_read_byte(i++), 8);
 		}
 		gdb_packet_end();

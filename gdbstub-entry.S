@@ -45,12 +45,7 @@ The savedRegs struct:
 	     uint32_t reason;
 */
 
-/*
-This is the debugging exception routine; it's called by the debugging vector 
-
-We arrive here with all regs intact except for a2. The old contents of A2 are saved 
-into the DEBUG_EXCSAVE special function register. EPC is the original PC.
-*/
+// This is the debugging exception routine; it's called by the debugging vector
 debug_exception_handler:
 	// a0 - a4 are in debug_saved_ctx
 	// move them to gdbstub struct and save the rest
@@ -120,8 +115,6 @@ debug_exception_handler:
 
 // Call into the C code to do the actual handling.
 	call0	gdbstub_handle_debug_exception
-
-gdbstub_debug_exception_exit:
 
 	rsr		a2, ps
 	addi	a2, a2, PS_EXCM_MASK
