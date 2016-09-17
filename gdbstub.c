@@ -8,8 +8,6 @@
  *******************************************************************************/
 
 #include "gdbstub.h"
-#include "ets_sys.h"
-#include "eagle_soc.h"
 
 #include <xtensa/config/specreg.h>
 #include <xtensa/config/core-isa.h>
@@ -22,7 +20,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#define BIT(X) (1<<(X))
+#include <esp/types.h>
+#include <esp/uart.h>
+#include <esp/uart_regs.h>
 
 struct xtensa_exception_frame_t {
 	uint32_t pc;
@@ -52,31 +52,15 @@ void sdk_os_install_putc1(void (*p)(char c));
 #define os_memcpy(a,b,c) memcpy(a,b,c)
 
 typedef void wdtfntype();
-static wdtfntype *ets_wdt_disable=(wdtfntype *)0x400030f0;
-static wdtfntype *ets_wdt_enable=(wdtfntype *)0x40002fa0;
-
-#define EXCEPTION_GDB_SP_OFFSET 0x100
-
-#define ETS_UART_INUM 							5
-#define REG_UART_BASE(i)						(0x60000000+(i)*0xf00)
-#define UART_STATUS(i)							(REG_UART_BASE(i) + 0x1C)
-#define UART_RXFIFO_CNT							0x000000FF
-#define UART_RXFIFO_CNT_S						0
-#define UART_TXFIFO_CNT							0x000000FF
-#define UART_TXFIFO_CNT_S						16
-#define UART_FIFO(i)							(REG_UART_BASE(i) + 0x0)
-#define UART_INT_ENA(i)							(REG_UART_BASE(i) + 0xC)
-#define UART_INT_CLR(i)							(REG_UART_BASE(i) + 0x10)
-#define UART_RXFIFO_TOUT_INT_ENA				(BIT(8))
-#define UART_RXFIFO_FULL_INT_ENA				(BIT(0))
-#define UART_RXFIFO_TOUT_INT_CLR				(BIT(8))
-#define UART_RXFIFO_FULL_INT_CLR				(BIT(0))
+static wdtfntype *ets_wdt_disable = (wdtfntype *) 0x400030f0;
+static wdtfntype *ets_wdt_enable = (wdtfntype *) 0x40002fa0;
 
 // Length of buffer used to reserve GDB commands. Has to be at least able to fit the G command, which
 // implies a minimum size of about 190 bytes.
 #define PBUFLEN 256
 // Length of gdb stdout buffer, for console redirection
 #define OBUFLEN 32
+#define ETS_UART_INUM 5
 
 //The asm stub saves the Xtensa registers here when a debugging exception happens.
 struct xtensa_exception_frame_t gdbstub_savedRegs;
@@ -114,17 +98,17 @@ static void ATTR_GDBFN wdt_keep_alive() {
 // Receive a char from the uart. Uses polling and feeds the watchdog.
 static int ATTR_GDBFN gdb_recv_char() {
 	int i;
-	while (((READ_PERI_REG(UART_STATUS(0)) >> UART_RXFIFO_CNT_S) & UART_RXFIFO_CNT) == 0) {
+	while (FIELD2VAL(UART_STATUS_RXFIFO_COUNT, UART(0).STATUS) == 0) {
 		wdt_keep_alive();
 	}
-	i = READ_PERI_REG(UART_FIFO(0));
+	i = UART(0).FIFO;
 	return i;
 }
 
 // Send a char to the uart.
 static void ATTR_GDBFN gdb_send_char(char c) {
-	while (((READ_PERI_REG(UART_STATUS(0)) >> UART_TXFIFO_CNT_S) & UART_TXFIFO_CNT) >= 126);
-	WRITE_PERI_REG(UART_FIFO(0), c);
+	uart_txfifo_wait(0, 1);
+	UART(0).FIFO = c;
 }
 
 // Send the start of a packet; reset checksum calculation.
@@ -449,7 +433,7 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 		return ST_CONT;
 	} else if (cmd[0]=='q') {
 		// Extended query
-		if (strncmp((char*)&cmd[1], "Supported", 9)==0) {
+		if (strncmp((char*) &cmd[1], "Supported", 9) == 0) {
 			// Capabilities query
 			gdb_packet_start();
 			gdb_packet_str("swbreak+;hwbreak+;PacketSize=255");
@@ -761,18 +745,18 @@ void ATTR_GDBFN gdbstub_handle_uart_int() {
 	uint8_t do_debug = 0;
 	size_t fifolen = 0;
 
-	fifolen = (READ_PERI_REG(UART_STATUS(0)) >> UART_RXFIFO_CNT_S) & UART_RXFIFO_CNT;
+	fifolen = FIELD2VAL(UART_STATUS_RXFIFO_COUNT, UART(0).STATUS);
 
 	while (fifolen != 0) {
 		// Check if any of the chars is control-C. Throw away the rest.
-		if ((READ_PERI_REG(UART_FIFO(0)) & 0xFF) == 0x3) {
+		if (((UART(0).FIFO) & 0xFF) == 0x3) {
 			do_debug = 1;
 			break;
 		}
 		fifolen--;
 	}
 
-	WRITE_PERI_REG(UART_INT_CLR(0), UART_RXFIFO_FULL_INT_CLR | UART_RXFIFO_TOUT_INT_CLR);
+	UART(0).INT_CLEAR |= UART_INT_CLEAR_RXFIFO_FULL | UART_INT_CLEAR_RXFIFO_TIMEOUT;
 
 	// TODO: restore a0, a1 as well in esp-open-rtos
 	// TODO: save and restore a14, a15, a16 in esp-open-rtos
@@ -827,7 +811,7 @@ void ATTR_GDBFN gdbstub_handle_uart_int() {
 static void ATTR_GDBINIT gdbstub_install_uart_handler() {
 	_xt_isr_attach(ETS_UART_INUM, gdbstub_handle_uart_int);
 
-	SET_PERI_REG_MASK(UART_INT_ENA(0), UART_RXFIFO_FULL_INT_ENA | UART_RXFIFO_TOUT_INT_ENA);
+	UART(0).INT_ENABLE |= UART_INT_ENABLE_RXFIFO_TIMEOUT | UART_INT_ENABLE_RXFIFO_FULL;
 
 	// enable UART interrupt
 	uint32_t intenable;

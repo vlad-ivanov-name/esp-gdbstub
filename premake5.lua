@@ -16,7 +16,7 @@ project "esp-gdbstub"
 	targetdir "lib"
 	includedirs { 
 		esp_open_rtos .. "/include/espressif/esp8266/",
-		esp_open_rtos .. "/lwip/lwip/espressif/include/" 
-	} 
+		esp_open_rtos .. "/lwip/lwip/espressif/include/",
+		esp_open_rtos .. "/core/include"
+	}
 	files { "*.c", "*.S" }
-
