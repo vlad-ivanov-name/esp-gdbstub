@@ -5,7 +5,7 @@ esp-gdbstub
 Intro
 -----
 
-This is a fork of <a href="/Espressif/esp-gdbstub">Espressif/esp-gdbstub</a> intended for use with <a href="/SuperHouse/esp-open-rtos">esp-open-rtos</a>.
+This is a fork of <a href="https://github.com/Espressif/esp-gdbstub">Espressif/esp-gdbstub</a> intended for use with <a href="https://github.com/SuperHouse/esp-open-rtos">esp-open-rtos</a>.
 
 Usage
 -----
