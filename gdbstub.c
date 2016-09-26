@@ -45,13 +45,24 @@ struct xtensa_exception_frame_t {
 #include <stdio.h>
 
 void _xt_isr_attach(int inum, void *fn);
-void sdk__xt_isr_unmask(int inum);
 void sdk_os_install_putc1(void (*p)(char c));
 
-#define os_printf(...) printf(__VA_ARGS__)
-#define os_memcpy(a,b,c) memcpy(a,b,c)
-
 typedef void wdtfntype();
+
+typedef enum {
+	gdb_cmd_read_regs = 'g',
+	gdb_cmd_write_regs = 'G',
+	gdb_cmd_stop_reason = '?',
+	gdb_cmd_memory_read = 'm',
+	gdb_cmd_memory_write = 'M',
+	gdb_cmd_query_ex = 'q',
+	gdb_cmd_long_name = 'v',
+	gdb_cmd_hw_breakpoint_set = 'Z',
+	gdb_cmd_hw_breakpoint_clear = 'z',
+	gdb_cmd_continue = 'c',
+	gdb_cmd_single_step = 's'
+} gdb_serial_cmd_t;
+
 static wdtfntype *ets_wdt_disable = (wdtfntype *) 0x400030f0;
 static wdtfntype *ets_wdt_enable = (wdtfntype *) 0x40002fa0;
 
@@ -62,26 +73,42 @@ static wdtfntype *ets_wdt_enable = (wdtfntype *) 0x40002fa0;
 #define OBUFLEN 32
 #define ETS_UART_INUM 5
 
-//The asm stub saves the Xtensa registers here when a debugging exception happens.
+// Error states used by the routines that grab stuff from the incoming gdb packet
+#define ST_ENDPACKET	-1
+#define ST_ERR			-2
+#define ST_OK			-3
+#define ST_CONT			-4
+
+// The asm stub saves the Xtensa registers here when a debugging exception happens.
 struct xtensa_exception_frame_t gdbstub_savedRegs;
 
-//This is the debugging exception stack.
-int exceptionStack[256];
+// This is the debugging exception stack.
+uintptr_t gdbstub_exception_stack[256];
 
 static unsigned char cmd[PBUFLEN];		// GDB command input buffer
 static char gdbstub_packet_crc;			// Checksum of the output packet
 static unsigned char obuf[OBUFLEN];		// GDB stdout buffer
 static int obufpos = 0;					// Current position in the buffer
 
-static int32_t singleStepPs = -1;			// Stores ps when single-stepping instruction. -1 when not in use.
+static int32_t single_step_ps = -1;			// Stores ps when single-stepping instruction. -1 when not in use.
 
-void gdbstub_icount_ena_single_step() {
+static void gdbstub_icount_ena_single_step() {
 	__asm volatile (
 		"wsr %0, ICOUNTLEVEL" "\n"
 		"wsr %1, ICOUNT" "\n"
 	:: "a" (XCHAL_DEBUGLEVEL), "a" (-2));
 
 	__asm volatile ("isync");
+}
+
+static void gdbstub_single_step() {
+	// single-step instruction
+	// Single-stepping can go wrong if an interrupt is pending, especially when it is e.g. a task switch:
+	// the ICOUNT register will overflow in the task switch code. That is why we disable interupts when
+	// doing single-instruction stepping.
+	single_step_ps = gdbstub_savedRegs.ps;
+	gdbstub_savedRegs.ps = (gdbstub_savedRegs.ps & ~0xf) | (XCHAL_DEBUGLEVEL - 1);
+	gdbstub_icount_ena_single_step();
 }
 
 // Small function to feed the hardware watchdog. Needed to stop the ESP from resetting
@@ -151,12 +178,6 @@ static void ATTR_GDBFN gdb_packet_end() {
 	gdb_send_char('#');
 	gdb_packet_hex(gdbstub_packet_crc, 8);
 }
-
-// Error states used by the routines that grab stuff from the incoming gdb packet
-#define ST_ENDPACKET	-1
-#define ST_ERR			-2
-#define ST_OK			-3
-#define ST_CONT			-4
 
 // Grab a hex value from the gdb packet. Ptr will get positioned on the end
 // of the hex string, as far as the routine has read into it. Bits/4 indicates
@@ -334,7 +355,8 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 	int i, j, k;
 	uint8_t * data = cmd + 1;
 
-	if (cmd[0] == 'g') {
+	switch (cmd[0]) {
+	case gdb_cmd_read_regs:
 		// send all registers to gdb
 		gdb_packet_start();
 		gdb_packet_hex(bswap32(gdbstub_savedRegs.a0), 32);
@@ -351,7 +373,8 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 		gdb_packet_hex(0, 32);
 		gdb_packet_hex(bswap32(gdbstub_savedRegs.ps), 32);
 		gdb_packet_end();
-	} else if (cmd[0]=='G') {
+		break;
+	case gdb_cmd_write_regs:
 		// receive content for all registers from gdb
 		gdbstub_savedRegs.a0 = bswap32(gdb_get_hex_val(&data, 32));
 		gdbstub_savedRegs.a1 = bswap32(gdb_get_hex_val(&data, 32));
@@ -371,7 +394,8 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 		gdb_packet_start();
 		gdb_packet_str("OK");
 		gdb_packet_end();
-	} else if (cmd[0]=='m') {
+		break;
+	case gdb_cmd_memory_read:
 		// read memory to gdb
 		i = gdb_get_hex_val(&data, -1);
 		data++;
@@ -381,7 +405,8 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 			gdb_packet_hex(mem_read_byte(i++), 8);
 		}
 		gdb_packet_end();
-	} else if (cmd[0]=='M') {
+		break;
+	case gdb_cmd_memory_write:
 		// write memory from gdb
 		// addr
 		i = gdb_get_hex_val(&data, -1);
@@ -412,26 +437,32 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 			gdb_packet_str("E01");
 			gdb_packet_end();
 		}
-	} else if (cmd[0] == '?') {
+		break;
+	case gdb_cmd_stop_reason:
 		// Reply with stop reason
 		gdb_send_reason();
-	} else if (strncmp(cmd, "vCont?", 6) == 0) {
-		gdb_packet_start();
-		gdb_packet_str("vCont;c;s;r");
-		gdb_packet_end();
-	} else if (strncmp((char*)cmd, "vCont;c", 7) == 0 || cmd[0]=='c') {
-		// continue execution
+		break;
+	case gdb_cmd_continue:
 		return ST_CONT;
-	} else if (strncmp((char*)cmd, "vCont;s", 7) == 0 || cmd[0]=='s') {
-		// single-step instruction
-		// Single-stepping can go wrong if an interrupt is pending, especially when it is e.g. a task switch:
-		// the ICOUNT register will overflow in the task switch code. That is why we disable interupts when
-		// doing single-instruction stepping.
-		singleStepPs = gdbstub_savedRegs.ps;
-		gdbstub_savedRegs.ps = (gdbstub_savedRegs.ps & ~0xf) | (XCHAL_DEBUGLEVEL - 1);
-		gdbstub_icount_ena_single_step();
+		break;
+	case gdb_cmd_single_step:
+		gdbstub_single_step();
 		return ST_CONT;
-	} else if (cmd[0]=='q') {
+		break;
+	case gdb_cmd_long_name:
+		if (strncmp(cmd, "vCont?", 6) == 0) {
+			gdb_packet_start();
+			gdb_packet_str("vCont;c;s;r");
+			gdb_packet_end();
+		} else if (strncmp(cmd, "vCont;c", 7) == 0) {
+			// continue execution
+			return ST_CONT;
+		} else if (strncmp(cmd, "vCont;s", 7) == 0) {
+			gdbstub_single_step();
+			return ST_CONT;
+		}
+		break;
+	case gdb_cmd_query_ex:
 		// Extended query
 		if (strncmp((char*) &cmd[1], "Supported", 9) == 0) {
 			// Capabilities query
@@ -444,7 +475,8 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 			gdb_packet_end();
 			return ST_ERR;
 		}
-	} else if (cmd[0] == 'Z') {
+		break;
+	case gdb_cmd_hw_breakpoint_set:
 		// Set hardware break/watchpoint.
 		// skip 'x,'
 		data += 2;
@@ -513,7 +545,8 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 		}
 
 		gdb_packet_end();
-	} else if (cmd[0] == 'z') {
+		break;
+	case gdb_cmd_hw_breakpoint_clear:
 		// Clear hardware break/watchpoint
 		// skip 'x,'
 		data += 2;
@@ -540,12 +573,14 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 		}
 
 		gdb_packet_end();
-	} else {
+		break;
+	default:
 		// We don't recognize or support whatever GDB just sent us.
 		gdb_packet_start();
 		gdb_packet_end();
 		return ST_ERR;
 	}
+
 	return ST_OK;
 }
 
@@ -599,7 +634,6 @@ static int ATTR_GDBFN gdb_read_command() {
 	ptr = &sentchs[0];
 
 	rchsum = gdb_get_hex_val(&ptr, 8);
-//	os_printf("c %x r %x\n", chsum, rchsum);
 
 	if (rchsum != chsum) {
 		gdb_send_char('-');
@@ -623,7 +657,7 @@ static uint32_t ATTR_GDBFN get_reg_val(size_t reg) {
 
 //Set the value of one of the A registers
 static void ATTR_GDBFN set_reg_val(size_t reg, uint32_t val) {
-	// os_printf("%x -> %x\n", val, reg);
+
 	if (reg == 0) {
 		gdbstub_savedRegs.a0 = val;
 	}
@@ -661,8 +695,6 @@ static void ATTR_GDBFN emulLdSt() {
 		p = (uintptr_t *) get_reg_val(i1 & 0xf) + ((i1 >> 4) * 4);
 		*p = get_reg_val(i0 >> 4);
 		gdbstub_savedRegs.pc += 2;
-	} else {
-		// os_printf("GDBSTUB: No l32i/s32i instruction: %x %x %x. Huh?", i2, i1, i0);
 	}
 }
 
@@ -671,11 +703,11 @@ static void ATTR_GDBFN emulLdSt() {
 void ATTR_GDBFN gdbstub_handle_debug_exception() {
 	ets_wdt_disable();
 
-	if (singleStepPs != -1) {
+	if (single_step_ps != -1) {
 		// We come here after single-stepping an instruction. Interrupts are disabled
 		// for the single step. Re-enable them here.
-		gdbstub_savedRegs.ps = (gdbstub_savedRegs.ps & ~0xf) | (singleStepPs & 0xf);
-		singleStepPs = -1;
+		gdbstub_savedRegs.ps = (gdbstub_savedRegs.ps & ~0xf) | (single_step_ps & 0xf);
+		single_step_ps = -1;
 	}
 
 	gdb_send_reason();

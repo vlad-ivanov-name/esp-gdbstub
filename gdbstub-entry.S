@@ -18,7 +18,7 @@
 
 .global gdbstub_savedRegs
 .global debug_exception_handler
-.global gdbstub_exceptionStack
+.global gdbstub_exception_stack
 
 // part of esp-open-rtos
 // contains a0 - a4
@@ -98,7 +98,7 @@ debug_exception_handler:
 	s32i	a4, a2, 0x04
 
 	// Move to our own stack
-	movi	a1, exceptionStack + 255 * 4
+	movi	a1, gdbstub_exception_stack + 255 * 4
 
 // If ICOUNT is -1, disable it by setting it to 0, otherwise we will keep triggering on the same instruction.
 	rsr		a2, ICOUNT
@@ -228,10 +228,7 @@ gdbstub_user_exception_entry:
 	s32i	a3, a0, 0x04
 	l32i	a3, a1, 4
 	s32i	a3, a0, 0x00
-
-#if GDBSTUB_USE_OWN_STACK
-	movi    a1, exceptionStack + 255 * 4
-#endif
+	movi    a1, gdbstub_exception_stack + 255 * 4
 
 	rsr		a2, ps
 	addi	a2, a2, -PS_EXCM_MASK
