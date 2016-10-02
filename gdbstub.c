@@ -16,6 +16,8 @@
 #include "gdbstub.h"
 #include "gdbstub-entry.h"
 #include "gdbstub-cfg.h"
+#include "gdbstub-freertos.h"
+#include "gdbstub-internal.h"
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -23,6 +25,9 @@
 #include <esp/types.h>
 #include <esp/uart.h>
 #include <esp/uart_regs.h>
+
+#include <FreeRTOS.h>
+#include <task.h>
 
 struct xtensa_exception_frame_t {
 	uint32_t pc;
@@ -44,7 +49,6 @@ struct xtensa_exception_frame_t {
 #include <string.h>
 #include <stdio.h>
 
-void _xt_isr_attach(int inum, void *fn);
 void sdk_os_install_putc1(void (*p)(char c));
 
 typedef void wdtfntype();
@@ -60,7 +64,8 @@ typedef enum {
 	gdb_cmd_hw_breakpoint_set = 'Z',
 	gdb_cmd_hw_breakpoint_clear = 'z',
 	gdb_cmd_continue = 'c',
-	gdb_cmd_single_step = 's'
+	gdb_cmd_single_step = 's',
+	gdb_cmd_set_thread = 'H'
 } gdb_serial_cmd_t;
 
 static wdtfntype *ets_wdt_disable = (wdtfntype *) 0x400030f0;
@@ -139,13 +144,13 @@ static void ATTR_GDBFN gdb_send_char(char c) {
 }
 
 // Send the start of a packet; reset checksum calculation.
-static void ATTR_GDBFN gdb_packet_start() {
+void gdb_packet_start() {
 	gdbstub_packet_crc = 0;
 	gdb_send_char('$');
 }
 
 // Send a char as part of a packet
-static void ATTR_GDBFN gdb_packet_char(char c) {
+void gdb_packet_char(char c) {
 	if (c=='#' || c=='$' || c=='}' || c=='*') {
 		gdb_send_char('}');
 		gdb_send_char(c ^ 0x20);
@@ -157,7 +162,7 @@ static void ATTR_GDBFN gdb_packet_char(char c) {
 }
 
 // Send a string as part of a packet
-static void ATTR_GDBFN gdb_packet_str(char *c) {
+void gdb_packet_str(const char * c) {
 	while (*c != 0) {
 		gdb_packet_char(*c);
 		c++;
@@ -165,7 +170,7 @@ static void ATTR_GDBFN gdb_packet_str(char *c) {
 }
 
 // Send a hex val as part of a packet. 'bits'/4 dictates the number of hex chars sent.
-static void ATTR_GDBFN gdb_packet_hex(int val, int bits) {
+void gdb_packet_hex(int val, int bits) {
 	char hexChars[] = "0123456789abcdef";
 	int i;
 	for (i = bits; i > 0; i -= 4) {
@@ -174,7 +179,7 @@ static void ATTR_GDBFN gdb_packet_hex(int val, int bits) {
 }
 
 // Finish sending a packet.
-static void ATTR_GDBFN gdb_packet_end() {
+void gdb_packet_end() {
 	gdb_send_char('#');
 	gdb_packet_hex(gdbstub_packet_crc, 8);
 }
@@ -219,16 +224,6 @@ static long ATTR_GDBFN gdb_get_hex_val(uint8_t **ptr, size_t bits) {
 		}
 	}
 	return v;
-}
-
-// Swap an int into the form gdb wants it
-static uint32_t ATTR_GDBFN bswap32(uint32_t i) {
-	uint32_t r;
-	r = ((i >> 24) & 0xff);
-	r |= ((i >> 16) & 0xff) << 8;
-	r |= ((i >> 8) & 0xff) << 16;
-	r |= ((i >> 0) & 0xff) << 24;
-	return r;
 }
 
 // Read a byte from the ESP8266 memory.
@@ -305,7 +300,7 @@ struct regfile {
 static void ATTR_GDBFN gdb_send_reason() {
 	// exception-to-signal mapping
 	uint8_t exceptionSignal[] = { 4, 31, 11, 11, 2, 6, 8, 0, 6, 7, 0, 0, 7, 7, 7, 7 };
-	size_t i=0;
+	size_t i = 0;
 
 	gdb_packet_start();
 	gdb_packet_char('T');
@@ -346,6 +341,79 @@ static void ATTR_GDBFN gdb_send_reason() {
 		//TODO: watch: send address
 #endif
 	}
+
+#if GDBSTUB_THREAD_AWARE
+	gdbstub_freertos_report_thread();
+#endif
+
+	gdb_packet_end();
+}
+
+static bool gdbstub_process_query(uint8_t* cmd) {
+	char * query = (char *) &cmd[1];
+
+	const char * q_supported = "Supported";
+
+#if GDBSTUB_THREAD_AWARE
+	const char * q_threads_read = "Xfer:threads:read";
+	const char * features =
+		"swbreak+;"
+		"hwbreak+;"
+		"qXfer:threads:read+;"
+		"PacketSize=255";
+#else
+	const char * features =
+		"swbreak+;"
+		"hwbreak+;"
+		"PacketSize=255";
+#endif
+
+	// TODO fix this shit
+	if (strncmp(query, q_supported, 9) == 0) {
+		// Capabilities query
+		gdb_packet_start();
+		gdb_packet_str(features);
+		gdb_packet_end();
+	}
+#if GDBSTUB_THREAD_AWARE
+	else if (strncmp(query, q_threads_read, 17) == 0) {
+		gdbstub_freertos_task_list();
+	}
+#endif
+	else {
+		return false;
+	}
+
+	return true;
+}
+
+static void gdbstub_read_regs() {
+#if GDBSTUB_THREAD_AWARE
+	/*
+	 * If the debugger wants to read state of the task
+	 * not currently active, registers should be read
+	 * from task stack.
+	 */
+	if (!gdbstub_freertos_task_selected()) {
+		gdbstub_freertos_regs_read();
+		return;
+	}
+#endif
+
+	gdb_packet_start();
+	gdb_packet_hex(bswap32(gdbstub_savedRegs.a0), 32);
+	gdb_packet_hex(bswap32(gdbstub_savedRegs.a1), 32);
+
+	for (size_t i = 2; i < 16; i++) {
+		gdb_packet_hex(bswap32(gdbstub_savedRegs.a[i - 2]), 32);
+	}
+
+	gdb_packet_hex(bswap32(gdbstub_savedRegs.pc), 32);
+	gdb_packet_hex(bswap32(gdbstub_savedRegs.sar), 32);
+	gdb_packet_hex(bswap32(gdbstub_savedRegs.litbase), 32);
+	gdb_packet_hex(bswap32(gdbstub_savedRegs.sr176), 32);
+	gdb_packet_hex(0, 32);
+	gdb_packet_hex(bswap32(gdbstub_savedRegs.ps), 32);
 	gdb_packet_end();
 }
 
@@ -358,21 +426,7 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 	switch (cmd[0]) {
 	case gdb_cmd_read_regs:
 		// send all registers to gdb
-		gdb_packet_start();
-		gdb_packet_hex(bswap32(gdbstub_savedRegs.a0), 32);
-		gdb_packet_hex(bswap32(gdbstub_savedRegs.a1), 32);
-
-		for (i = 2; i < 16; i++) {
-			gdb_packet_hex(bswap32(gdbstub_savedRegs.a[i - 2]), 32);
-		}
-
-		gdb_packet_hex(bswap32(gdbstub_savedRegs.pc), 32);
-		gdb_packet_hex(bswap32(gdbstub_savedRegs.sar), 32);
-		gdb_packet_hex(bswap32(gdbstub_savedRegs.litbase), 32);
-		gdb_packet_hex(bswap32(gdbstub_savedRegs.sr176), 32);
-		gdb_packet_hex(0, 32);
-		gdb_packet_hex(bswap32(gdbstub_savedRegs.ps), 32);
-		gdb_packet_end();
+		gdbstub_read_regs();
 		break;
 	case gdb_cmd_write_regs:
 		// receive content for all registers from gdb
@@ -464,13 +518,8 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 		break;
 	case gdb_cmd_query_ex:
 		// Extended query
-		if (strncmp((char*) &cmd[1], "Supported", 9) == 0) {
-			// Capabilities query
-			gdb_packet_start();
-			gdb_packet_str("swbreak+;hwbreak+;PacketSize=255");
-			gdb_packet_end();
-		} else {
-			// We don't support other queries.
+		if (!gdbstub_process_query(cmd)) {
+			// We weren't able to understand the query
 			gdb_packet_start();
 			gdb_packet_end();
 			return ST_ERR;
@@ -546,6 +595,20 @@ static int ATTR_GDBFN gdb_handle_command(uint8_t * cmd, size_t len) {
 
 		gdb_packet_end();
 		break;
+#if GDBSTUB_THREAD_AWARE
+	case gdb_cmd_set_thread:
+		// Set thread for memory and register operations
+		if (cmd[1] == 'g') {
+			data += 1;
+			uint32_t thread = gdb_get_hex_val(&data, -1);
+			gdbstub_freertos_task_select(thread);
+		}
+
+		gdb_packet_start();
+		gdb_packet_str("OK");
+		gdb_packet_end();
+		break;
+#endif
 	case gdb_cmd_hw_breakpoint_clear:
 		// Clear hardware break/watchpoint
 		// skip 'x,'
