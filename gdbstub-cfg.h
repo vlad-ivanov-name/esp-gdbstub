@@ -8,8 +8,6 @@
  * By default, ESP8266 SDK starts a lot of tasks and transferring all their
  * data through UART will take some time, so there is a performance impact too.
  *
- * This option requires configENABLE_TRACE_FACILITY to be set to 1.
- *
  * This option is set in the premake script.
  */
 #ifndef GDBSTUB_THREAD_AWARE
