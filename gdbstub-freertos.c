@@ -21,7 +21,7 @@ static size_t task_count = 0;
 static size_t task_selected = 0;
 static struct {
 	uint32_t * stack;
-	xTaskHandle handle;
+	TaskHandle_t handle;
 } task_list[GDBSTUB_THREADS_MAX] = {{ 0 }};
 
 /*
@@ -39,16 +39,16 @@ typedef struct tskTaskControlBlock {
 /*
  * Private FreeRTOS stuff shared using portREMOVE_STATIC_QUALIFIER
  */
-extern xList * volatile pxDelayedTaskList;
-extern xList * volatile pxOverflowDelayedTaskList;
-extern xList pxReadyTasksLists[configMAX_PRIORITIES];
+extern List_t * volatile pxDelayedTaskList;
+extern List_t * volatile pxOverflowDelayedTaskList;
+extern List_t pxReadyTasksLists[configMAX_PRIORITIES];
 
 #if INCLUDE_vTaskDelete
-extern xList xTasksWaitingTermination;
+extern List_t xTasksWaitingTermination;
 #endif
 
 #if INCLUDE_vTaskSuspend
-extern xList xSuspendedTaskList;
+extern List_t xSuspendedTaskList;
 #endif
 
 extern tskTCB * volatile pxCurrentTCB;
@@ -61,7 +61,7 @@ static void gdbstub_send_task(size_t id, char * name) {
 	gdb_packet_str(thread_entry);
 }
 
-static void process_task_list(xList * list) {
+static void process_task_list(List_t * list) {
 	volatile tskTCB * next_tcb, * first_tcb;
 
 	if (list->uxNumberOfItems > 0) {
@@ -75,7 +75,7 @@ static void process_task_list(xList * list) {
 			listGET_OWNER_OF_NEXT_ENTRY(next_tcb, list);
 
 			task_list[task_count].stack = (uint32_t *) next_tcb->pxTopOfStack;
-			task_list[task_count].handle = (xTaskHandle) next_tcb;
+			task_list[task_count].handle = (TaskHandle_t) next_tcb;
 
 			task_count++;
 		} while (next_tcb != first_tcb);
@@ -92,8 +92,8 @@ static void fill_task_array() {
 		process_task_list(&pxReadyTasksLists[queue]);
 	} while (queue > tskIDLE_PRIORITY);
 
-	process_task_list((xList *) pxDelayedTaskList);
-	process_task_list((xList *) pxOverflowDelayedTaskList);
+	process_task_list((List_t *) pxDelayedTaskList);
+	process_task_list((List_t *) pxOverflowDelayedTaskList);
 
 #if INCLUDE_vTaskDelete
 	process_task_list(&xTasksWaitingTermination);
@@ -120,7 +120,7 @@ void gdbstub_freertos_task_list() {
 	 */
 
 	for (size_t i = 0; i < task_count - 1; i++) {
-		gdbstub_send_task(i + 1, (char *) pcTaskGetTaskName(task_list[i].handle));
+		gdbstub_send_task(i + 1, (char *) pcTaskGetName(task_list[i].handle));
 	}
 
 	gdb_packet_str("</threads>");
@@ -136,7 +136,7 @@ bool gdbstub_freertos_task_selected() {
 		return true;
 	}
 
-	return task_list[task_selected].handle == (xTaskHandle) pxCurrentTCB;
+	return task_list[task_selected].handle == (TaskHandle_t) pxCurrentTCB;
 }
 
 void gdbstub_freertos_regs_read() {
@@ -170,7 +170,7 @@ void gdbstub_freertos_report_thread() {
 	size_t task_index = 0;
 
 	for (size_t i = 0; i < task_count - 1; i++) {
-		if (task_list[i].handle == (xTaskHandle) pxCurrentTCB) {
+		if (task_list[i].handle == (TaskHandle_t) pxCurrentTCB) {
 			task_index = i;
 			break;
 		}
