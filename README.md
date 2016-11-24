@@ -5,7 +5,7 @@ esp-gdbstub
 Intro
 -----
 
-ESP8266 debugging tool intended to be used with and <a href="https://github.com/SuperHouse/esp-open-rtos">esp-open-rtos</a>. Based on <a href="https://github.com/Espressif/esp-gdbstub">Espressif/esp-gdbstub</a>.
+ESP8266 debugging tool intended to be used with <a href="https://github.com/SuperHouse/esp-open-rtos">esp-open-rtos</a>. Based on <a href="https://github.com/Espressif/esp-gdbstub">Espressif/esp-gdbstub</a>.
 
 <img width="50%" src="https://cloud.githubusercontent.com/assets/2057191/19023093/df5226c2-88f6-11e6-89d0-cd47b09781cc.png" />
 
