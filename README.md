@@ -13,7 +13,7 @@ Usage
 -----
 
 1. Build requires premake5 and xtensa-lx106-elf toolchain. Make sure both are in your PATH.
-2. Configure with `premake5 gmake`. The following options are supported:
+1. Configure with `premake5 gmake`. The following options are supported:
     * `--with-eor=/path/to/esp-open-rtos`: this option is required. It should point to an actual esp-open-rtos location.
 	* `--with-threads`: enable RTOS task debugging. As for now, there is very basic support of threads, you will be able 
 	to see multiple tasks when a breakpoint is hit, but GDB will most likely crash shorlty after. This option also has 
@@ -26,10 +26,21 @@ Usage
 	`CFLAGS+=-DportREMOVE_STATIC_QUALIFIER -DINCLUDE_pcTaskGetTaskName=1`
 	
 	Run `make clean` after switching the state of this flag.
-3. Run `make`
-4. Add `esp-gdbstub/include` to the list of include paths of your project
-5. Add `lib/libesp-gdbstub.a` to the list of linked libraries.
-6. Call `gdbstub_init()` after configuring UART speed.
+1. Run `make`
+1. Add library to your project:
+	```Makefile
+	PROGRAM=blink
+	
+	# Order is important!
+	
+	EXTRA_CFLAGS+=-I../../../esp-gdbstub/include
+	EXTRA_LDFLAGS+=-L../../../esp-gdbstub/lib
+	
+	include ../../common.mk
+	
+	LIBS+=esp-gdbstub
+	```
+1. Call `gdbstub_init()` after configuring UART speed.
 
 Eclipse CDT setup
 -----------------
