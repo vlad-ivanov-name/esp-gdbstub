@@ -19,12 +19,14 @@
 #include "gdbstub-freertos.h"
 #include "gdbstub-internal.h"
 
+#include <sys/reent.h>
 #include <stdlib.h>
 #include <stdint.h>
 
 #include <esp/types.h>
 #include <esp/uart.h>
 #include <esp/uart_regs.h>
+#include <stdout_redirect.h>
 
 #include <FreeRTOS.h>
 #include <task.h>
@@ -49,8 +51,6 @@ struct xtensa_exception_frame_t {
 #include <string.h>
 #include <stdio.h>
 
-void sdk_os_install_putc1(void (*p)(char c));
-
 typedef void wdtfntype();
 
 typedef enum {
@@ -74,8 +74,6 @@ static wdtfntype *ets_wdt_enable = (wdtfntype *) 0x40002fa0;
 // Length of buffer used to reserve GDB commands. Has to be at least able to fit the G command, which
 // implies a minimum size of about 190 bytes.
 #define PBUFLEN 256
-// Length of gdb stdout buffer, for console redirection
-#define OBUFLEN 32
 #define ETS_UART_INUM 5
 
 // Error states used by the routines that grab stuff from the incoming gdb packet
@@ -92,8 +90,6 @@ uintptr_t gdbstub_exception_stack[256];
 
 static unsigned char cmd[PBUFLEN];		// GDB command input buffer
 static char gdbstub_packet_crc;			// Checksum of the output packet
-static unsigned char obuf[OBUFLEN];		// GDB stdout buffer
-static int obufpos = 0;					// Current position in the buffer
 
 static int32_t single_step_ps = -1;			// Stores ps when single-stepping instruction. -1 when not in use.
 
@@ -815,22 +811,6 @@ void ATTR_GDBFN gdbstub_handle_user_exception() {
 	ets_wdt_enable();
 }
 
-// Replacement putchar1 routine. Instead of spitting out the character directly, it will buffer up to
-// OBUFLEN characters (or up to a \n, whichever comes earlier) and send it out as a gdb stdout packet.
-static void ATTR_GDBFN gdb_semihost_putchar1(char c) {
-	obuf[obufpos++] = c;
-
-	if (c == '\n' || obufpos == OBUFLEN) {
-		gdb_packet_start();
-		gdb_packet_char('O');
-		for (size_t i = 0; i < obufpos; i++) {
-			gdb_packet_hex(obuf[i], 8);
-		}
-		gdb_packet_end();
-		obufpos = 0;
-	}
-}
-
 extern void gdbstub_user_exception_entry();
 // This will override a weak symbol in esp-open-rtos
 void debug_exception_handler();
@@ -917,11 +897,21 @@ static void ATTR_GDBINIT gdbstub_install_uart_handler() {
 	:: "r" (intenable), "r" (BIT(ETS_UART_INUM)));
 }
 
-// gdbstub initialization routine.
+static long gdbstub_stdout_write(struct _reent *r, int fd, const char *ptr, int len) {
+	gdb_packet_start();
+	gdb_packet_char('O');
+
+	for (size_t i = 0; i < len; i++) {
+		gdb_packet_hex(ptr[i], 8);
+	}
+
+	gdb_packet_end();
+	return len;
+}
+
 void ATTR_GDBINIT gdbstub_init() {
 	// install stdout wrapper
-	// TODO: fix esp-open-sdk compat
-	sdk_os_install_putc1(gdb_semihost_putchar1);
+	set_write_stdout(gdbstub_stdout_write);
 
 	// install UART interrupt handler
 	gdbstub_install_uart_handler();
