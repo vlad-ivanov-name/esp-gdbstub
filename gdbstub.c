@@ -884,7 +884,7 @@ void ATTR_GDBFN gdbstub_handle_uart_int() {
 }
 
 static void ATTR_GDBINIT gdbstub_install_uart_handler() {
-	_xt_isr_attach(ETS_UART_INUM, gdbstub_handle_uart_int);
+	_xt_isr_attach(ETS_UART_INUM, gdbstub_handle_uart_int, NULL);
 
 	UART(0).INT_ENABLE |= UART_INT_ENABLE_RXFIFO_TIMEOUT | UART_INT_ENABLE_RXFIFO_FULL;
 
