@@ -264,9 +264,6 @@ gdbstub_save_extra_sfrs_for_exception:
 	s32i	a3, a2, 0x5C
 	ret
 
-	.global gdbstub_init_debug_entry
-	.align	4
-
 // These routines all assume only one breakpoint and watchpoint is available, which
 // is the case for the ESP8266 Xtensa core.
 
