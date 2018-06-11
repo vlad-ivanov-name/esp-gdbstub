@@ -20,6 +20,7 @@
 #include "gdbstub-internal.h"
 
 #include <sys/reent.h>
+#include <sys/types.h>
 #include <stdlib.h>
 #include <stdint.h>
 
@@ -897,12 +898,12 @@ static void ATTR_GDBINIT gdbstub_install_uart_handler() {
 	:: "r" (intenable), "r" (BIT(ETS_UART_INUM)));
 }
 
-static long gdbstub_stdout_write(struct _reent *r, int fd, const char *ptr, int len) {
+static ssize_t gdbstub_stdout_write(struct _reent *r, int fd, const void *ptr, size_t len) {
 	gdb_packet_start();
 	gdb_packet_char('O');
 
 	for (size_t i = 0; i < len; i++) {
-		gdb_packet_hex(ptr[i], 8);
+		gdb_packet_hex(((const char *) ptr)[i], 8);
 	}
 
 	gdb_packet_end();
