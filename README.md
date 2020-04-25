@@ -20,7 +20,11 @@ ESP8266 debugging tool intended to be used with <a href="https://github.com/Supe
 	When thread support is enabled, you need to add the following definitions to CFLAGS of your project before compiling 
 	FreeRTOS libs:
 	
-	`CFLAGS+=-DportREMOVE_STATIC_QUALIFIER -DINCLUDE_pcTaskGetTaskName=1`
+	```
+	EXTRA_CFLAGS+=-DportREMOVE_STATIC_QUALIFIER -DINCLUDE_pcTaskGetTaskName=1
+	
+	# The line above should go before including common.mk
+	```
 	
 	Run `make clean` after switching the state of this flag.
 1. Run `make`
