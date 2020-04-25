@@ -38,7 +38,7 @@ project "esp-gdbstub"
 	}
 	files {
 		"gdbstub.c",
-		"*.S"
+		"gdbstub-entry.S"
 	}
 	configuration "with-threads"
 		defines { "GDBSTUB_THREAD_AWARE=1" }
